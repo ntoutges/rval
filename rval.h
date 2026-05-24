@@ -1,5 +1,5 @@
-#ifndef _RVAL_H
-#define _RVAL_H
+#ifndef __RVAL_H
+#define __RVAL_H
 
 /**
  * @file rval.h
@@ -13,6 +13,7 @@
  */
 
 #include <stdint.h>
+#include <string.h>
 #include "cmd/cmd.h"
 
 #ifdef __cplusplus
@@ -49,15 +50,41 @@ extern "C" {
 
 // Supported data formats
 typedef enum rval_type_t {
-    RVAL_I8,        // uint8_t
-    RVAL_I16,       // uint16_t
-    RVAL_I32,       // uint32_t
-    RVAL_FLOAT,     // float
-    RVAL_STR,       // char*
-    RVAL_STR_BYOB,  // char* (buffer provided)
-    RVAL_BUF,       // uint8_t*
-    RVAL_BUF_BYOB   // uint8_t* (buffer provided)
+    _RVAL_I8         = 0b000,    // uint8_t
+    _RVAL_I16        = 0b001,    // uint16_t
+    _RVAL_I32        = 0b010,    // uint32_t
+    _RVAL_FLOAT      = 0b011,    // float
+    _RVAL_STR        = 0b100,    // char*
+    _RVAL_STR_BYOB   = 0b101,    // char* (buffer provided)
+    _RVAL_BUF        = 0b110,    // uint8_t*
+    _RVAL_BUF_BYOB   = 0b111     // uint8_t* (buffer provided)
 } rval_type_t;
+
+// Internal error type
+typedef enum rval_set_err_t {
+    _RVAL_ERR_NONE,     // No error
+    _RVAL_ERR_SAME,     // No change
+    _RVAL_ERR_TOO_BIG,  // Buffer too big
+    _RVAL_ERR_READONLY, // Remote value cannot be requested; Too big!
+} rval_set_err_t;
+
+// Used to view keys
+// The same format as a string slice
+typedef struct rval_key_view_t {
+    const char* chars;    // The raw character data (non-NULL terminated)
+    uint8_t length; // The number of characters stored in the `chars` buffer
+} rval_key_view_t;
+
+typedef struct rval_entry_header_t {
+    uint8_t keyLen; // Length of key
+    char start;     // Initial char of key
+} rval_entry_header_t;
+
+// Body type for buffers
+typedef struct rval_entry_body_buf_t {
+    rval_bbuf_ptr_t length;
+    uint8_t start;
+} rval_entry_body_buf_t;
 
 typedef struct rval_buf_t {
     uint8_t* buf;           // The actual buffer data
@@ -72,8 +99,8 @@ typedef struct rval_t {
     cmd_t* cmd;     // The command instance we piggyback off of
     rval_buf_t buf; // The buffer to hold all internal data
 
-    void (*onSet)(const char* key); // Possibly null; Called on any value getting `set`
-    bool (*onRes)(const char* key); // Possibly null; Called on any value getting 'res'olved
+    void (*onSet)(rval_key_view_t key); // Possibly null; Called on any value getting `set`
+    bool (*onRes)(rval_key_view_t key); // Possibly null; Called on any value getting 'res'olved
 } rval_t;
 
 // Used to expose some buffer value to the outside world
@@ -99,8 +126,8 @@ rval_t rval(
     cmd_t* cmd,
     uint8_t* vbuf,
     rval_bbuf_ptr_t vbuf_size,
-    void (*onSet)(const char* key),
-    bool (*onRes)(const char* key)
+    void (*onSet)(rval_key_view_t key),
+    bool (*onRes)(rval_key_view_t key)
 );
 
 /**
@@ -123,8 +150,8 @@ rval_t rval(
 rval_t rval_f(
     cmd_t* cmd,
     rval_bbuf_ptr_t vbuf_size,
-    void (*onSet)(const char* key),
-    bool (*onRes)(const char* key)
+    void (*onSet)(rval_key_view_t key),
+    bool (*onRes)(rval_key_view_t key)
 );
 
 // ======== DECLARE VALUES ========
@@ -221,7 +248,7 @@ bool rval_decl_str(rval_t* rval, const char* key, char* byob, rval_bbuf_ptr_t si
  * - Invalid input key (empty string)
  * - Repeated key (already exists)
  */
-bool rval_decl_buf(rval_t* rval, const char* key, char* byob, rval_bbuf_ptr_t size, bool remote);
+bool rval_decl_buf(rval_t* rval, const char* key, uint8_t* byob, rval_bbuf_ptr_t size, bool remote);
 
 /**
  * Undeclare some value and free up all memory associated with in in the internal buffer
@@ -290,7 +317,7 @@ bool rval_set_str(rval_t* rval, const char* key, const char* value);
  * - Invlaid desired value (associated key is not a string)
  * - Invalid value (string too long to fit within buffer)
  */
-bool rval_set_buf(rval_t* rval, const char* key, const uint8_t* buf, rval_bbuf_ptr_t start, rval_bbuf_ptr_t length);
+bool rval_set_buf(rval_t* rval, const char* key, const uint8_t* value, rval_bbuf_ptr_t start, rval_bbuf_ptr_t length);
 
 // ======== GET VALUES ========
 
@@ -307,14 +334,6 @@ uint32_t rval_get_i(rval_t* rval, const char* key);
  * @param rval      The `rval` instance to update the value within
  * @param key       The key used to identify this value
  * @returns         The stored/cached float value, or `0` if no integer entry with the given key exists
- */
-float rval_get_f(rval_t* rval, const char* key);
-
-/**
- * Get the current cached integer value
- * @param rval      The `rval` instance to update the value within
- * @param key       The key used to identify this value
- * @returns         The stored/cached float value, or `0` if no buffer entry with the given key exists
  */
 float rval_get_f(rval_t* rval, const char* key);
 

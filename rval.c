@@ -15,14 +15,17 @@ void _rval_get_entry(rval_t* rval, rval_bbuf_ptr_t idx, rval_entry_header_t** he
 rval_type_t _rval_get_type(rval_t* rval, rval_bbuf_ptr_t idx); // Get a value's type
 bool _rval_get_remote(rval_t* rval, rval_bbuf_ptr_t idx); // Get whether a value is remote
 
-rval_t rval(
+void rval(
+    rval_t* rval,
     cmd_t* cmd,
     uint8_t* vbuf,
     rval_bbuf_ptr_t vbuf_size,
     void (*onSet)(rval_key_view_t key),
     bool (*onRes)(rval_key_view_t key)
 ) {
-    return (rval_t) {
+    
+    // Initialize `rval` instance
+    *rval = (rval_t) {
         .cmd = cmd,
         .buf = (rval_buf_t) {
             .buf = vbuf,
@@ -35,7 +38,8 @@ rval_t rval(
     };
 }
 
-rval_t rval_f(
+bool rval_f(
+    rval_t* rval_,
     cmd_t* cmd,
     rval_bbuf_ptr_t vbuf_size,
     void (*onSet)(rval_key_view_t key),
@@ -44,7 +48,10 @@ rval_t rval_f(
     uint8_t* vbuf = (uint8_t*) malloc(vbuf_size * sizeof(uint8_t));
     if (vbuf == NULL) vbuf_size = 0; // Failed to allocate buffer
 
-    return rval(cmd, vbuf, vbuf_size, onSet, onRes);
+    rval(rval_, cmd, vbuf, vbuf_size, onSet, onRes);
+
+    // Indicate if we were successful
+    return vbuf != NULL;
 }
 
 bool rval_decl_i8(rval_t* rval, const char* key, bool remote) {

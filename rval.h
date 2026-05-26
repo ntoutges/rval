@@ -111,6 +111,7 @@ typedef struct rval_buf_view_t {
 
 /**
  * Create a new `rval` instance
+ * @param rval      The location to store the created `rval` instance
  * @param cmd       The command instance to use for value synchronization
  * @param vbuf      The buffer used to hold onto vlaues
  * @param vbuf_size The size of the value buffer (in bytes)
@@ -120,9 +121,9 @@ typedef struct rval_buf_view_t {
  * Return `true` to run default behaviour (resolve with current value).
  * Return `false` to inhibit default behaviour (custom resolution implementation required)
  * Set to NULL to omit.
- * @returnsThe created command instance
  */
-rval_t rval(
+void rval(
+    rval_t* rval,
     cmd_t* cmd,
     uint8_t* vbuf,
     rval_bbuf_ptr_t vbuf_size,
@@ -136,7 +137,8 @@ rval_t rval(
  * Uses dynamic memory allocation to minimize boilerplate required in getting this running,
  * yielding a larger memory footprint (and the possiblity of failure) with the benefit of
  * an easier dev experience
- * If either the vbuf cannot be allocated, it is reduced to a size of 0 B
+ * If the vbuf cannot be allocated, it is reduced to a size of 0 B and this operation fiales
+ * @param rval      The location to store the created `rval` instance
  * @param cmd       The command instance to use for value synchronization
  * @param vbuf_size The size of the value buffer (in bytes)
  * @param onSet     The callback function called whenever any value is set. Set to NULL to omit.
@@ -145,9 +147,10 @@ rval_t rval(
  * Return `true` to run default behaviour (resolve with current value).
  * Return `false` to inhibit default behaviour (custom resolution implementation required)
  * Set to NULL to omit.
- * @returnsThe created command instance
+ * @returns `true` iff the dynamic allocation succeeded
  */
-rval_t rval_f(
+bool rval_f(
+    rval_t* rval,
     cmd_t* cmd,
     rval_bbuf_ptr_t vbuf_size,
     void (*onSet)(rval_key_view_t key),

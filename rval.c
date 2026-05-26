@@ -15,6 +15,14 @@ void _rval_get_entry(rval_t* rval, rval_bbuf_ptr_t idx, rval_entry_header_t** he
 rval_type_t _rval_get_type(rval_t* rval, rval_bbuf_ptr_t idx); // Get a value's type
 bool _rval_get_remote(rval_t* rval, rval_bbuf_ptr_t idx); // Get whether a value is remote
 
+bool _rval_update_remote(rval_t* rval, rval_bbuf_ptr_t idx, void* newValue); // Send out set/req update based on value
+
+void _rval_on_update(rval_t* rval, bool isReq); // Helper to update values on set/req listener
+
+void _rval_on_set(rval_t* rval);
+void _rval_on_req(rval_t* rval);
+void _rval_on_res(rval_t* rval);
+
 void rval(
     rval_t* rval,
     cmd_t* cmd,
@@ -36,6 +44,11 @@ void rval(
         .onSet = onSet,
         .onRes = onRes
     };
+
+    // Attach set/res/req listeners
+    cmd_attach(cmd, "set", _rval_on_set, &rval);
+    cmd_attach(cmd, "res", _rval_on_res, &rval);
+    cmd_attach(cmd, "req", _rval_on_req, &rval);
 }
 
 bool rval_f(
@@ -150,8 +163,8 @@ bool rval_undecl(rval_t* rval, const char* key) {
 }
 
 bool rval_set_i(rval_t* rval, const char* key, int32_t value) {
-    rval_bbuf_ptr_t* idx;
-    if (!_rval_search(rval, key, idx)) return false;
+    rval_bbuf_ptr_t idx;
+    if (!_rval_search(rval, key, &idx)) return false;
 
     rval_type_t type = _rval_get_type(rval, idx);
     
@@ -177,8 +190,8 @@ bool rval_set_i(rval_t* rval, const char* key, int32_t value) {
 }
 
 bool rval_set_f(rval_t* rval, const char* key, float value) {
-    rval_bbuf_ptr_t* idx;
-    if (!_rval_search(rval, key, idx)) return false;
+    rval_bbuf_ptr_t idx;
+    if (!_rval_search(rval, key, &idx)) return false;
 
     rval_type_t type = _rval_get_type(rval, idx);
     
@@ -190,8 +203,8 @@ bool rval_set_f(rval_t* rval, const char* key, float value) {
 }
 
 bool rval_set_str(rval_t* rval, const char* key, const char* value) {
-    rval_bbuf_ptr_t* idx;
-    if (!_rval_search(rval, key, idx)) return false;
+    rval_bbuf_ptr_t idx;
+    if (!_rval_search(rval, key, &idx)) return false;
 
     rval_type_t type = _rval_get_type(rval, idx);
     
@@ -209,8 +222,8 @@ bool rval_set_str(rval_t* rval, const char* key, const char* value) {
 }
 
 bool rval_set_buf(rval_t* rval, const char* key, const uint8_t* value, rval_bbuf_ptr_t start, rval_bbuf_ptr_t length) {
-    rval_bbuf_ptr_t* idx;
-    if (!_rval_search(rval, key, idx)) return false;
+    rval_bbuf_ptr_t idx;
+    if (!_rval_search(rval, key, &idx)) return false;
 
     rval_type_t type = _rval_get_type(rval, idx);
     
@@ -227,8 +240,8 @@ bool rval_set_buf(rval_t* rval, const char* key, const uint8_t* value, rval_bbuf
 }
 
 uint32_t rval_get_i(rval_t* rval, const char* key) {
-    rval_bbuf_ptr_t* idx;
-    if (!_rval_search(rval, key, idx)) return 0;
+    rval_bbuf_ptr_t idx;
+    if (!_rval_search(rval, key, &idx)) return 0;
 
     rval_type_t type = _rval_get_type(rval, idx);
     
@@ -253,8 +266,8 @@ uint32_t rval_get_i(rval_t* rval, const char* key) {
 }
 
 float rval_get_f(rval_t* rval, const char* key) {
-    rval_bbuf_ptr_t* idx;
-    if (!_rval_search(rval, key, idx)) return 0;
+    rval_bbuf_ptr_t idx;
+    if (!_rval_search(rval, key, &idx)) return 0;
 
     rval_type_t type = _rval_get_type(rval, idx);
     
@@ -265,8 +278,8 @@ float rval_get_f(rval_t* rval, const char* key) {
 }
 
 const char* rval_get_str(rval_t* rval, const char* key) {
-    rval_bbuf_ptr_t* idx;
-    if (!_rval_search(rval, key, idx)) return NULL;
+    rval_bbuf_ptr_t idx;
+    if (!_rval_search(rval, key, &idx)) return NULL;
 
     rval_type_t type = _rval_get_type(rval, idx);
     
@@ -282,8 +295,8 @@ const char* rval_get_str(rval_t* rval, const char* key) {
 }
 
 rval_buf_view_t rval_get_buf(rval_t* rval, const char* key) {
-    rval_bbuf_ptr_t* idx;
-    if (!_rval_search(rval, key, idx)) return (rval_buf_view_t) { NULL, 0 };
+    rval_bbuf_ptr_t idx;
+    if (!_rval_search(rval, key, &idx)) return (rval_buf_view_t) { NULL, 0 };
 
     rval_type_t type = _rval_get_type(rval, idx);
     
@@ -301,7 +314,13 @@ rval_buf_view_t rval_get_buf(rval_t* rval, const char* key) {
 }
 
 bool rval_res(rval_t* rval, const char* key) {
+    rval_bbuf_ptr_t idx;
+    if (!_rval_search(rval, key, &idx)) return false; // Invalid key
 
+    cmd_send(rval->cmd, 0x00);      // Initiate transmission
+    cmd_sends(rval->cmd, "res \""); // Resolving...
+    cmd_sends(rval->cmd, key);      // Value to resolve
+    cmd_sends(rval->cmd, "\"\n");   // Send transmission
 }
 
 // ======== PRIVATE FUNCTIONS ========
@@ -521,9 +540,39 @@ rval_set_err_t _rval_set(rval_t* rval, rval_bbuf_ptr_t idx, void* newValue, rval
         }
     }
 
+    if (!_rval_update_remote(rval, idx, newValue)) {
+        return _RVAL_ERR_READONLY;
+    }
+
+    return _RVAL_ERR_NONE;
+}
+
+bool _rval_update_remote(
+    rval_t* rval,
+    rval_bbuf_ptr_t idx,
+    void* newValue
+) {
+    // Extract relevant data
+    rval_entry_header_t* header;
+    rval_entry_body_buf_t* value;
+
+    _rval_get_entry(rval, idx, &header, &value);
+
+    // Apply default value
+    if (newValue != NULL) value = newValue;
+
+    uint8_t keyLen   = header->keyLen & 0b00011111; // Separate keyLen from type
+    rval_type_t type = header->keyLen & 0b11100000; // Separate type from keyLen
+    bool remote = header->start & 0b10000000;       // Extract `remote` from upper bit of first key character
+
+    // Extract buffer for buffer types
+    uint8_t* buf = type == _RVAL_STR_BYOB || type == _RVAL_BUF_BYOB
+        ? *((uint8_t**) &value)
+        : &(value->start);
+    
     // Value change verified; Initiate new request
     bool writable = cmd_send(rval->cmd, 0x00); // Send initiator
-    if (!writable) return _RVAL_ERR_READONLY; // No writer function available
+    if (!writable) return false; // No writer function available
 
     // Send initial command
     cmd_sends(
@@ -549,10 +598,10 @@ rval_set_err_t _rval_set(rval_t* rval, rval_bbuf_ptr_t idx, void* newValue, rval
 
             // Extract int from `newValue`
             int32_t val = type == _RVAL_I8
-                ? *((int8_t*) newValue)
+                ? *((int8_t*) value)
                 : type == _RVAL_I16
-                ? *((int16_t*) newValue)
-                : *((int32_t*) newValue);
+                ? *((int16_t*) value)
+                : *((int32_t*) value);
             
             cmd_sendi(rval->cmd, val);
             break;
@@ -560,7 +609,7 @@ rval_set_err_t _rval_set(rval_t* rval, rval_bbuf_ptr_t idx, void* newValue, rval
 
         case _RVAL_FLOAT:
             // Extract float from `newValue`
-            float val = *((float*) newValue);
+            float val = *((float*) value);
 
             cmd_sendf(rval->cmd, val);
             break;
@@ -585,7 +634,11 @@ rval_set_err_t _rval_set(rval_t* rval, rval_bbuf_ptr_t idx, void* newValue, rval
             break;
     }
 
-    
+    // Finish transmission
+    cmd_send(rval->cmd, '\n');
+
+    // Success!
+    return true;
 }
 
 rval_entry_header_t* _rval_get_header(rval_t* rval, rval_bbuf_ptr_t idx) {
@@ -620,4 +673,69 @@ bool _rval_get_remote(rval_t* rval, rval_bbuf_ptr_t idx) {
 
     // Extract `type` from keyLen field
     return (header->start & 0b10000000) ? true : false;
+}
+
+// ======== COMMAND LISTENERS ========
+
+void _rval_on_update(rval_t* rval, bool isReq) {
+    // Expected format: !set/req <name> <value> [--offset <offset>]
+    const char* name = cmd_ogets(rval->cmd, 1, "");
+
+    rval_bbuf_ptr_t idx;
+    if (!_rval_search(rval, name, &idx)) return; // Invalid name; Ignore!
+
+    // Extract referenced value type
+    rval_type_t type = _rval_get_type(rval, idx);
+
+    // `req` only responds if we own the value (!remote)
+    // If remote, ignore!
+    if (isReq && _rval_get_remote(rval, idx)) return;
+
+    switch (type) {
+        
+        // Treat all integers the same
+        case _RVAL_I8:
+        case _RVAL_I16:
+        case _RVAL_I32: {
+            int32_t value = cmd_ogeti(rval->cmd, idx, 2);
+            _rval_set(rval, idx, &value, 0, 0);
+            break;
+        }
+
+        // Extract float
+        case _RVAL_FLOAT: {
+            float value = cmd_ogeti(rval->cmd, idx, 2);
+            _rval_set(rval, idx, &value, 0, 0);
+            break;
+        }
+
+        case _RVAL_STR:
+        case _RVAL_STR_BYOB: {
+            const char* value = cmd_ogets(rval->cmd, idx, 2);
+            rval_bbuf_ptr_t offset = cmd_ugeti(rval->cmd, "offset", 0);
+            _rval_set(rval, idx, value, offset, strlen(value));
+        }
+
+        case _RVAL_BUF:
+        case _RVAL_BUF_BYOB:
+            // @TODO handleme
+    }
+}
+
+void _rval_on_set(rval_t* rval) {
+    _rval_on_update(rval, false);
+}
+
+void _rval_on_req(rval_t* rval) {
+    _rval_on_update(rval, true);
+}
+
+void _rval_on_res(rval_t* rval) {
+    // Expected format: !res <name>
+    const char* name = cmd_ogets(rval->cmd, 1, "");
+
+    rval_bbuf_ptr_t idx;
+    if (!_rval_search(rval, name, &idx)) return; // Invalid name; Ignore!
+
+    _rval_update_remote(rval, idx, NULL); // NULL => Pull current value
 }

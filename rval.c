@@ -20,9 +20,9 @@ bool _rval_update_remote(rval_t* rval, rval_bbuf_ptr_t idx, const void* newValue
 
 void _rval_on_update(rval_t* rval, bool isReq); // Helper to update values on set/req listener
 
-void _rval_on_set(rval_t* rval);
-void _rval_on_req(rval_t* rval);
-void _rval_on_res(rval_t* rval);
+void _rval_on_set(void* rval);
+void _rval_on_req(void* rval);
+void _rval_on_res(void* rval);
 
 void rval(
     rval_t* rval,
@@ -46,9 +46,9 @@ void rval(
     };
 
     // Attach set/res/req listeners
-    cmd_attach(cmd, "set", (void (*)(void*)) _rval_on_set, &rval);
-    cmd_attach(cmd, "res", (void (*)(void*)) _rval_on_res, &rval);
-    cmd_attach(cmd, "req", (void (*)(void*)) _rval_on_req, &rval);
+    cmd_attach(cmd, "set", _rval_on_set, rval);
+    cmd_attach(cmd, "res", _rval_on_res, rval);
+    cmd_attach(cmd, "req", _rval_on_req, rval);
 }
 
 bool rval_f(
@@ -706,15 +706,19 @@ void _rval_on_update(rval_t* rval, bool isReq) {
     }
 }
 
-void _rval_on_set(rval_t* rval) {
+void _rval_on_set(void* args) {
+    rval_t* rval = args;
     _rval_on_update(rval, false);
 }
 
-void _rval_on_req(rval_t* rval) {
-    _rval_on_update(rval, true);
+void _rval_on_req(void* args) {
+    rval_t* rval = args;
+    _rval_on_update((rval_t*) rval, true);
 }
 
-void _rval_on_res(rval_t* rval) {
+void _rval_on_res(void* args) {
+    rval_t* rval = args;
+
     // Expected format: !res <name>
     const char* name = cmd_ogets(rval->cmd, 1, "");
 

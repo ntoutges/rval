@@ -34,6 +34,9 @@ int main() {
     printf(" >> !req myVar 12\n");
     cmd_recvs(&shell, "!req myVar 12\n");
 
+    printf(" >> !res myVar\n");
+    cmd_recvs(&shell, "!res myVar\n");
+
     printf("Success: %d %d %d (0x%08x)\n", s1, s2, s3, rval_get_i(&myRval, "myVar"));
 
     // Print contents of vbuf

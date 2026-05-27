@@ -130,7 +130,10 @@ bool rval_decl_str(rval_t* rval, const char* key, char* byob, rval_bbuf_ptr_t si
     value->length = size; // Record allocated size of buffer
 
     if (byob == NULL) value->start = 0x00;              // Initialize as empty string iff our own buffer
-    else memcpy(&(value->start), &byob, sizeof(char*)); // Otherwise, copy in pointer to provided buffer
+    else {
+        memcpy(&(value->start), &byob, sizeof(char*));  // Otherwise, copy in pointer to provided buffer
+        byob[0] = 0x00;                                 // and initialize empty string
+    }
 
     return true; // Success!
 }
@@ -195,7 +198,7 @@ bool rval_set_str(rval_t* rval, const char* key, const char* value) {
     // Invalid type; Fail!
     if (type != _RVAL_STR && type != _RVAL_STR_BYOB) return false;
 
-    rval_set_err_t err = _rval_set(rval, idx, &value, 0, strlen(value));
+    rval_set_err_t err = _rval_set(rval, idx, value, 0, strlen(value));
     return err == _RVAL_ERR_NONE || err == _RVAL_ERR_READONLY || err == _RVAL_ERR_SAME;
 }
 
@@ -208,7 +211,7 @@ bool rval_set_buf(rval_t* rval, const char* key, const uint8_t* value, rval_bbuf
     // Invalid type; Fail!
     if (type != _RVAL_BUF && type != _RVAL_BUF_BYOB) return false;
 
-    rval_set_err_t err = _rval_set(rval, idx, &value, start, length);
+    rval_set_err_t err = _rval_set(rval, idx, value, start, length);
     return err == _RVAL_ERR_NONE || err == _RVAL_ERR_READONLY || err == _RVAL_ERR_SAME;
 }
 
@@ -358,14 +361,16 @@ bool _rval_search(rval_t* rval, const char* key, rval_bbuf_ptr_t* idx) {
 bool _rval_alloc(rval_t* rval, const char* key, rval_bbuf_ptr_t length, rval_bbuf_ptr_t* loc) {
     uint8_t keyLen = strlen(key);
 
-    // Preflight check: Ensure key isn't too long
-    if (keyLen > 32) return false; // Too long to fit into 5 bits
+    // Preflight check: Ensure key isn't too long/short
+    if (keyLen <= 0 || keyLen >= 32) return false; // Too long to fit into 5 bits/too short to store remote bit
 
     // Preflight check: Ensure enough memory is available for entry
     // Note that cache entry is already technically preallocated (don't need to check, as it is const size)
     //                          --- Header (u8)      (key) ---   - Body -
     rval_bbuf_ptr_t req_bytes = (sizeof(uint8_t) + keyLen + length);
-    rval_bbuf_ptr_t avail_bytes = rval->buf.cache_idx - rval->buf.entry_len;
+    rval_bbuf_ptr_t avail_bytes = rval->buf.cache_idx < rval->buf.entry_len
+        ? 0
+        : rval->buf.cache_idx - rval->buf.entry_len;
     if (req_bytes > avail_bytes) return false; // Not enough memory available
 
     // Get insertion point of new cache entry (and check if entry already exists)
@@ -379,7 +384,7 @@ bool _rval_alloc(rval_t* rval, const char* key, rval_bbuf_ptr_t length, rval_bbu
         &(rval->buf.buf[rval->buf.cache_idx + sizeof(rval_bbuf_ptr_t)]),
         (idx - rval->buf.cache_idx) * sizeof(rval_bbuf_ptr_t)
     );
-    rval->buf.buf[idx] = rval->buf.entry_len; // Populate cache entry
+    *((rval_bbuf_ptr_t*) &(rval->buf.buf[idx])) = rval->buf.entry_len; // Populate cache entry
 
     // Populate entry header
     rval_entry_header_t* header = (rval_entry_header_t*) &(rval->buf.buf[rval->buf.entry_len]);
@@ -408,7 +413,67 @@ bool _rval_free(rval_t* rval, const char* key) {
 
     _rval_get_entry(rval, idx, &header, (void**) &value);
 
-    // @TODO
+    rval_bbuf_ptr_t bidx = *((rval_bbuf_ptr_t*) &(rval->buf.buf[idx])); // Get base value idx
+    uint8_t* base = &(rval->buf.buf[bidx]); // Get base of entry from idx
+
+    // Extract important fields
+    uint8_t type =  (header->keyLen & 0b11100000) >> 5;
+    uint8_t keyLen = header->keyLen & 0b00011111;
+
+    rval_bbuf_ptr_t size = 0;
+
+    // Get amount of space taken up by data
+    switch (type) {
+        case _RVAL_I8:      size = sizeof(int8_t);     break;
+        case _RVAL_I16:     size = sizeof(int16_t);    break;
+        case _RVAL_I32:     size = sizeof(int32_t);    break;
+        case _RVAL_FLOAT:   size = sizeof(float);      break;
+        
+        case _RVAL_STR_BYOB:
+        case _RVAL_BUF_BYOB:
+            // Size entry + pointer to memory
+            size = sizeof(rval_bbuf_ptr_t) + sizeof(char*);
+            break;
+
+        case _RVAL_STR:
+        case _RVAL_BUF: {
+            rval_entry_body_buf_t* val = (rval_entry_body_buf_t*) value; // Cast to more useful type
+
+            // Size entry + that many bytes
+            size = sizeof(rval_bbuf_ptr_t) + val->length;
+            break;
+        }
+    }
+
+    // Add amount of space taken up by header (1 B) + key
+    size += 1 + keyLen;
+
+    // Remove entry + cache
+    // Allocater simplified by relying on a no-holes model, so we must fill in our gaps
+
+    // Close entry hole by moving everyone ahead back
+    // Allowed due to stable ids being keys, not pointers
+    memmove(base, base + size, rval->buf.entry_len - size);
+
+    // Close cache hole by moving everyone behind ahead by 1 cache entry
+    memmove(
+        rval->buf.buf + rval->buf.cache_idx + 2 * sizeof(rval_bbuf_ptr_t),
+        rval->buf.buf + rval->buf.cache_idx + sizeof(rval_bbuf_ptr_t),
+        idx - (rval->buf.cache_idx + sizeof(rval_bbuf_ptr_t))
+    );
+
+    // Update head pointers
+    rval->buf.cache_idx += sizeof(rval_bbuf_ptr_t); // 1 less cache entry
+    rval->buf.entry_len -= size;                    // `size` fewer bytes
+
+    // Update all cache entries above `idx` to reflect new positions
+    for (rval_bbuf_ptr_t i = rval->buf.cache_idx + sizeof(rval_bbuf_ptr_t); i < rval->buf.cap; i++) {
+        rval_bbuf_ptr_t * const vidx = &(rval->buf.buf[i]);
+
+        // Cache entry points to moved memory; Redirect to point at the real entries
+        if (*vidx > bidx) *vidx -= size;
+    }
+
     return true;
 }
 
@@ -477,7 +542,7 @@ rval_set_err_t _rval_set(rval_t* rval, rval_bbuf_ptr_t idx, const void* newValue
                 ? &(parsedValue->start)                 // Buffer is inline
                 : *((uint8_t**) &parsedValue->start);   // Buffer pointing somewhere else
 
-            if (offset + length + 1 > parsedValue->length) return _RVAL_ERR_TOO_BIG; // Unable to hold desired buffer
+            if (offset + length > parsedValue->length) return _RVAL_ERR_TOO_BIG; // Unable to hold desired buffer
             if (memcmp(buf + offset, (char*) newValue, parsedValue->length - offset) == 0) return _RVAL_ERR_SAME; // No difference
             break;
         }
@@ -506,6 +571,7 @@ rval_set_err_t _rval_set(rval_t* rval, rval_bbuf_ptr_t idx, const void* newValue
             case _RVAL_STR:
             case _RVAL_STR_BYOB:
                 memcpy(buf + offset, newValue, length);
+                buf[offset + length] = 0x00; // Push in NULL byte
                 break;
 
             case _RVAL_BUF:

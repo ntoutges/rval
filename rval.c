@@ -7,7 +7,7 @@ bool _rval_search(rval_t* rval, const char* key, rval_bbuf_ptr_t* idx); // Searc
 
 bool _rval_decl(rval_t* rval, const char* key, rval_type_t type, rval_bbuf_ptr_t length, bool remote, void** value); // Attempt to declare a new value of type `type`, taking up `length` bytes. If unsuccessful, returns `false`. Otherwise returns `true` and populates `value` a pointer to the allocated value memory
 
-rval_set_err_t _rval_set(rval_t* rval, rval_bbuf_ptr_t idx, const void* newValue, rval_bbuf_ptr_t offset, rval_bbuf_ptr_t length); // Update some value
+rval_set_err_t _rval_set(rval_t* rval, rval_bbuf_ptr_t idx, const void* newValue, rval_bbuf_ptr_t offset, rval_bbuf_ptr_t length, bool force); // Update some value
 
 rval_entry_header_t* _rval_get_header(rval_t* rval, rval_bbuf_ptr_t idx); // Get the header information for some cache entry
 void*  _rval_get_value(rval_t* rval, rval_bbuf_ptr_t idx); // Get the value information for some cache entry
@@ -172,7 +172,7 @@ bool rval_set_i(rval_t* rval, const char* key, int32_t value) {
     // Invalid type; Fail!
     if (type != _RVAL_I8 && type != _RVAL_I16 && type != _RVAL_I32) return false;
 
-    rval_set_err_t err = _rval_set(rval, idx, &value, 0, 0);
+    rval_set_err_t err = _rval_set(rval, idx, &value, 0, 0, false);
     return err == _RVAL_ERR_NONE || err == _RVAL_ERR_READONLY || err == _RVAL_ERR_SAME;
 }
 
@@ -185,7 +185,7 @@ bool rval_set_f(rval_t* rval, const char* key, float value) {
     // Invalid type; Fail!
     if (type != _RVAL_FLOAT) return false;
 
-    rval_set_err_t err = _rval_set(rval, idx, &value, 0, 0);
+    rval_set_err_t err = _rval_set(rval, idx, &value, 0, 0, false);
     return err == _RVAL_ERR_NONE || err == _RVAL_ERR_READONLY || err == _RVAL_ERR_SAME;
 }
 
@@ -198,7 +198,7 @@ bool rval_set_str(rval_t* rval, const char* key, const char* value) {
     // Invalid type; Fail!
     if (type != _RVAL_STR && type != _RVAL_STR_BYOB) return false;
 
-    rval_set_err_t err = _rval_set(rval, idx, value, 0, strlen(value));
+    rval_set_err_t err = _rval_set(rval, idx, value, 0, strlen(value), false);
     return err == _RVAL_ERR_NONE || err == _RVAL_ERR_READONLY || err == _RVAL_ERR_SAME;
 }
 
@@ -211,7 +211,7 @@ bool rval_set_buf(rval_t* rval, const char* key, const uint8_t* value, rval_bbuf
     // Invalid type; Fail!
     if (type != _RVAL_BUF && type != _RVAL_BUF_BYOB) return false;
 
-    rval_set_err_t err = _rval_set(rval, idx, value, start, length);
+    rval_set_err_t err = _rval_set(rval, idx, value, start, length, false);
     return err == _RVAL_ERR_NONE || err == _RVAL_ERR_READONLY || err == _RVAL_ERR_SAME;
 }
 
@@ -417,7 +417,7 @@ bool _rval_free(rval_t* rval, const char* key) {
     uint8_t* base = &(rval->buf.buf[bidx]); // Get base of entry from idx
 
     // Extract important fields
-    uint8_t type =  (header->keyLen & 0b11100000) >> 5;
+    uint8_t type =  header->keyLen >> 5;
     uint8_t keyLen = header->keyLen & 0b00011111;
 
     rval_bbuf_ptr_t size = 0;
@@ -493,7 +493,7 @@ bool _rval_decl(rval_t* rval, const char* key, rval_type_t type, rval_bbuf_ptr_t
     return true;
 }
 
-rval_set_err_t _rval_set(rval_t* rval, rval_bbuf_ptr_t idx, const void* newValue, rval_bbuf_ptr_t offset, rval_bbuf_ptr_t length) {
+rval_set_err_t _rval_set(rval_t* rval, rval_bbuf_ptr_t idx, const void* newValue, rval_bbuf_ptr_t offset, rval_bbuf_ptr_t length, bool force) {
     rval_type_t type = _rval_get_type(rval, idx);
 
     // Get old value for comparison
@@ -504,7 +504,6 @@ rval_set_err_t _rval_set(rval_t* rval, rval_bbuf_ptr_t idx, const void* newValue
 
     // Extract length of key from header field
     uint8_t keyLen = header->keyLen & 0b00011111;
-
 
     // Perform comparison check based on type
     switch (type) {
@@ -553,7 +552,7 @@ rval_set_err_t _rval_set(rval_t* rval, rval_bbuf_ptr_t idx, const void* newValue
     // Apply new values
     // Separated from comparison to allow for cleanr set vs. req code
     // Assume that all save operations are now valid
-    if (!remote) {
+    if (!remote || force) {
         switch (type) {
             case _RVAL_I8:
                 memcpy(oldValue, newValue, sizeof(int8_t));
@@ -589,8 +588,12 @@ rval_set_err_t _rval_set(rval_t* rval, rval_bbuf_ptr_t idx, const void* newValue
         }
     }
 
-    if (!_rval_update_remote(rval, idx, newValue)) {
-        return _RVAL_ERR_READONLY;
+    // (remote && force) => received `set` from local source
+    // Don't need to send out another `req` packet once acknowledged
+    if (!(remote && force)) {
+        if (!_rval_update_remote(rval, idx, newValue)) {
+            return _RVAL_ERR_READONLY;
+        }
     }
 
     return _RVAL_ERR_NONE;
@@ -611,7 +614,7 @@ bool _rval_update_remote(
     if (newValue != NULL) value = newValue;
 
     uint8_t keyLen   = header->keyLen & 0b00011111; // Separate keyLen from type
-    rval_type_t type = header->keyLen & 0b11100000; // Separate type from keyLen
+    rval_type_t type = header->keyLen >> 5;         // Separate type from keyLen
     bool remote = header->start & 0b10000000;       // Extract `remote` from upper bit of first key character
 
     // Extract buffer for buffer types
@@ -632,6 +635,8 @@ bool _rval_update_remote(
     // Send key
     for (uint8_t i = 0; i < keyLen; i++) {
         char ch = (&(header->start))[i];
+
+        if (i == 0) ch &= 0x7F; // Clear high bit
 
         if (ch == '"') cmd_send(rval->cmd, '\\'); // Escape quotes
         cmd_send(rval->cmd, ch);
@@ -748,14 +753,14 @@ void _rval_on_update(rval_t* rval, bool isReq) {
         case _RVAL_I16:
         case _RVAL_I32: {
             int32_t value = cmd_ogeti(rval->cmd, 2, 0);
-            _rval_set(rval, idx, &value, 0, 0);
+            _rval_set(rval, idx, &value, 0, 0, true);
             break;
         }
 
         // Extract float
         case _RVAL_FLOAT: {
             float value = cmd_ogetf(rval->cmd, 2, 0);
-            _rval_set(rval, idx, &value, 0, 0);
+            _rval_set(rval, idx, &value, 0, 0, true);
             break;
         }
 
@@ -763,7 +768,7 @@ void _rval_on_update(rval_t* rval, bool isReq) {
         case _RVAL_STR_BYOB: {
             const char* value = cmd_ogets(rval->cmd, 2, "");
             rval_bbuf_ptr_t offset = cmd_ugeti(rval->cmd, "offset", 0);
-            _rval_set(rval, idx, value, offset, strlen(value));
+            _rval_set(rval, idx, value, offset, strlen(value), true);
         }
 
         case _RVAL_BUF:
@@ -789,7 +794,8 @@ void _rval_on_res(void* args) {
     const char* name = cmd_ogets(rval->cmd, 1, "");
 
     rval_bbuf_ptr_t idx;
-    if (!_rval_search(rval, name, &idx)) return; // Invalid name; Ignore!
+    if (!_rval_search(rval, name, &idx)) return;    // Invalid name; Ignore!
+    if (_rval_get_remote(rval, idx)) return;        // Remote value; Ignore (defer to local)
 
     _rval_update_remote(rval, idx, NULL); // NULL => Pull current value
 }

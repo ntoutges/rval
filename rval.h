@@ -50,9 +50,9 @@ extern "C" {
 
 // Supported data formats
 typedef enum rval_type_t {
-    _RVAL_I8         = 0b000,    // uint8_t
-    _RVAL_I16        = 0b001,    // uint16_t
-    _RVAL_I32        = 0b010,    // uint32_t
+    _RVAL_I8         = 0b000,    // int8_t
+    _RVAL_I16        = 0b001,    // int16_t
+    _RVAL_I32        = 0b010,    // int32_t
     _RVAL_FLOAT      = 0b011,    // float
     _RVAL_STR        = 0b100,    // char*
     _RVAL_STR_BYOB   = 0b101,    // char* (buffer provided)

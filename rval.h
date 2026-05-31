@@ -99,7 +99,7 @@ typedef struct rval_t {
     cmd_t* cmd;     // The command instance we piggyback off of
     rval_buf_t buf; // The buffer to hold all internal data
 
-    void (*onSet)(rval_key_view_t key); // Possibly null; Called on any value getting `set`
+    bool (*onSet)(rval_key_view_t key); // Possibly null; Called on any value getting `set`
     bool (*onRes)(rval_key_view_t key); // Possibly null; Called on any value getting 'res'olved
 } rval_t;
 
@@ -116,6 +116,9 @@ typedef struct rval_buf_view_t {
  * @param vbuf      The buffer used to hold onto vlaues
  * @param vbuf_size The size of the value buffer (in bytes)
  * @param onSet     The callback function called whenever any value is set. Set to NULL to omit.
+ * Return value currently unused
+ * Planned for future expansion
+ * Return `true` to run default behaviour 
  * @param onRes     The callback function called whenever any **local** value is requested to be
  * resolved by some remote.
  * Return `true` to run default behaviour (resolve with current value).
@@ -127,7 +130,7 @@ void rval(
     cmd_t* cmd,
     uint8_t* vbuf,
     rval_bbuf_ptr_t vbuf_size,
-    void (*onSet)(rval_key_view_t key),
+    bool (*onSet)(rval_key_view_t key),
     bool (*onRes)(rval_key_view_t key)
 );
 
@@ -142,6 +145,9 @@ void rval(
  * @param cmd       The command instance to use for value synchronization
  * @param vbuf_size The size of the value buffer (in bytes)
  * @param onSet     The callback function called whenever any value is set. Set to NULL to omit.
+ * Return value currently unused
+ * Planned for future expansion
+ * Return `true` to run default behaviour 
  * @param onRes     The callback function called whenever any **local** value is requested to be
  * resolved by some remote.
  * Return `true` to run default behaviour (resolve with current value).
@@ -153,7 +159,7 @@ bool rval_f(
     rval_t* rval,
     cmd_t* cmd,
     rval_bbuf_ptr_t vbuf_size,
-    void (*onSet)(rval_key_view_t key),
+    bool (*onSet)(rval_key_view_t key),
     bool (*onRes)(rval_key_view_t key)
 );
 

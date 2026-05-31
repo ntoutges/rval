@@ -5,10 +5,12 @@ all:
 	gcc -o a.exe storage.c $(src) $(flags)
 	gcc -o b.exe remote.c $(src) $(flags)
 	gcc -o c.exe local.c $(src) $(flags)
+	gcc -o d.exe cb.c $(src) $(flags)
 
 	./a.exe
 	./b.exe
 	./c.exe
+	./d.exe
 
 storage:
 	gcc -o a.exe storage.c $(src) $(flags)
@@ -21,6 +23,10 @@ remote:
 local:
 	gcc -o c.exe local.c $(src) $(flags)
 	./c.exe
+
+cb:
+	gcc -o d.exe cb.c $(src) $(flags)
+	./d.exe
 
 main:
 	gcc -o a.exe main.c $(src) $(flags)

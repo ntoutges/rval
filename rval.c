@@ -1,5 +1,4 @@
 #include "rval.h"
-#include <stdio.h>
 
 bool _rval_alloc(rval_t* rval, const char* key, rval_bbuf_ptr_t length, rval_bbuf_ptr_t* loc); // Attempt to allocate space for a new cache entry, entry header, and `length` bytes of memory in the internal heap. If unsuccessful, returns `false`; otherwise returns `true` and populates `loc` with the index of the cache
 bool _rval_free(rval_t* rval, const char* key); // Free up all memory associated with the given key. If none exist, returns `false`. Otherwise returns `true`
@@ -29,7 +28,7 @@ void rval(
     cmd_t* cmd,
     uint8_t* vbuf,
     rval_bbuf_ptr_t vbuf_size,
-    void (*onSet)(rval_key_view_t key),
+    bool (*onSet)(rval_key_view_t key),
     bool (*onRes)(rval_key_view_t key)
 ) {
     // Initialize `rval` instance
@@ -55,7 +54,7 @@ bool rval_f(
     rval_t* rval_,
     cmd_t* cmd,
     rval_bbuf_ptr_t vbuf_size,
-    void (*onSet)(rval_key_view_t key),
+    bool (*onSet)(rval_key_view_t key),
     bool (*onRes)(rval_key_view_t key)
 ) {
     uint8_t* vbuf = (uint8_t*) malloc(vbuf_size * sizeof(uint8_t));
@@ -813,6 +812,19 @@ void _rval_on_res(void* args) {
     rval_bbuf_ptr_t idx;
     if (!_rval_search(rval, name, &idx)) return;    // Invalid name; Ignore!
     if (_rval_get_remote(rval, idx)) return;        // Remote value; Ignore (defer to local)
+
+    // Notify listener (if available)
+    if (rval->onRes) {
+        bool inhibit = !rval->onRes((rval_key_view_t) {
+            .chars = name,
+            .length = strlen(name)
+        });
+
+        // Ignore default behaviour on inhibit (return false)
+        if (inhibit) {
+            return;
+        }
+    }
 
     _rval_update_remote(rval, idx, NULL); // NULL => Pull current value
 }

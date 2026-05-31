@@ -123,7 +123,7 @@ bool rval_decl_str(rval_t* rval, const char* key, char* byob, rval_bbuf_ptr_t si
     // Determine type based on if `byob` buffer is provided
     rval_type_t type =       byob == NULL ? _RVAL_STR                       : _RVAL_STR_BYOB;
     rval_bbuf_ptr_t length = sizeof(rval_bbuf_ptr_t) + (byob == NULL ? size : sizeof(char*)); // Either the buffer itself or a pointer to a byob buffer
-    
+
     // Allocate space for value
     if (!_rval_decl(rval, key, type, length, remote, (void**) &value)) return false;
 
@@ -317,6 +317,9 @@ bool _rval_search(rval_t* rval, const char* key, rval_bbuf_ptr_t* idx) {
     rval_bbuf_ptr_t upper = rval->buf.cap;
     rval_bbuf_ptr_t mid = rval->buf.cache_idx;
 
+    // Get length of original key
+    uint8_t sKeyLen = strlen(key);
+
     // Perform binary search on bounds
     while (lower < upper) {
         mid = lower + (upper - lower) / (2 * sizeof(rval_bbuf_ptr_t)) * sizeof(rval_bbuf_ptr_t); // Pointer to entry
@@ -333,6 +336,11 @@ bool _rval_search(rval_t* rval, const char* key, rval_bbuf_ptr_t* idx) {
         int cmp = (midStr0 != key[0])
             ? midStr0 < key[0] ? -1 : 1                 // Check first character manually to account for `remote` bit (bit 7)
             : strncmp(midStr + 1, key + 1, keyLen - 1); // Let strncmp handle all other characters
+
+        // Different strings match up to minimum key length
+        if (cmp == 0 && sKeyLen != keyLen) {
+            cmp = sKeyLen > keyLen ? 1 : -1; // Longer string is "greater" (char > 0x00 terminator in cstrings)
+        }
         
         // Midpoint too low; Move up
         if (cmp < 0) {
@@ -617,11 +625,26 @@ bool _rval_update_remote(
     rval_type_t type = header->keyLen >> 5;         // Separate type from keyLen
     bool remote = header->start & 0b10000000;       // Extract `remote` from upper bit of first key character
 
-    // Extract buffer for buffer types
-    const uint8_t* buf = type == _RVAL_STR_BYOB || type == _RVAL_BUF_BYOB
-        ? *((uint8_t**) &value)
-        : &(value->start);
-    
+    const uint8_t* buf;
+
+    if (
+        type == _RVAL_STR
+        || type == _RVAL_STR_BYOB
+        || type == _RVAL_BUF
+        || type == _RVAL_BUF_BYOB
+    ) {
+        if (newValue != NULL) {
+            // Copy new value directly into buffer for buffer types
+            buf = newValue;
+        }
+        else {
+            // Extract buffer for buffer types
+            buf = type == _RVAL_STR_BYOB || type == _RVAL_BUF_BYOB
+                ? *((uint8_t**) &value->start)
+                : &(value->start);
+        }
+    }
+
     // Value change verified; Initiate new request
     bool writable = cmd_send(rval->cmd, 0x00); // Send initiator
     if (!writable) return false; // No writer function available
@@ -672,13 +695,7 @@ bool _rval_update_remote(
         case _RVAL_STR:
         case _RVAL_STR_BYOB:
             cmd_send(rval->cmd, '\"');
-
-            // Send one character at-a-time
-            for (rval_bbuf_ptr_t i = 0; buf[i]; i++) {
-                if (buf[i] == '"') cmd_send(rval->cmd, '\\'); // Escape quotes
-                cmd_send(rval->cmd, buf[i]);
-            }
-
+            cmd_sendr(rval->cmd, (char*) buf);
             cmd_send(rval->cmd, '\"');
             break;
 
@@ -743,8 +760,8 @@ void _rval_on_update(rval_t* rval, bool isReq) {
     rval_type_t type = _rval_get_type(rval, idx);
 
     // `req` only responds if we own the value (!remote)
-    // If remote, ignore!
-    if (isReq && _rval_get_remote(rval, idx)) return;
+    // `set` only responds if we don't own the value (remote)
+    if (isReq == _rval_get_remote(rval, idx)) return;
 
     switch (type) {
         

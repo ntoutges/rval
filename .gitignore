@@ -1,5 +1,3 @@
 *.out
 *.exe
 
-# Ignore submodules
-cmd/

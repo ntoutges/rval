@@ -683,12 +683,13 @@ bool _rval_update_remote(
             break;
         }
 
-        case _RVAL_FLOAT:
+        case _RVAL_FLOAT: {
             // Extract float from `newValue`
             float val = *((float*) value);
 
             cmd_sendf(rval->cmd, val);
             break;
+        }
 
         // Send string surrounded by quotes
         case _RVAL_STR:
@@ -790,6 +791,7 @@ void _rval_on_update(rval_t* rval, bool isReq) {
         case _RVAL_BUF:
         case _RVAL_BUF_BYOB:
             // @TODO handleme
+            break;
     }
 }
 

@@ -1,0 +1,13 @@
+{
+    "$schema": "https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/schema/library.json",
+
+    "name": "rval",
+    "version": "1.0.0",
+    "build": {
+        "srcFilter": [
+            "+<*>",
+            "-<test/>",
+            "-<cmd/test/>"
+        ]
+    }
+}

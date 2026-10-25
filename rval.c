@@ -830,3 +830,20 @@ void _rval_on_res(void* args) {
 
     _rval_update_remote(rval, idx, NULL); // NULL => Pull current value
 }
+
+int8_t rval_strcmp(rval_key_view_t lhs, const char* rhs) {
+
+    char l, r;
+    uint8_t i;
+    for (i = 0; i < lhs.length; i++) {
+        l = lhs.chars[i];
+        r = rhs[i];
+        
+        if (l < r) return -1; // LHS appears **before** RHS, lexicographically
+        else if (l > r) return 1; // LHS appears **after** RHS, lexicographically
+    }
+
+    if (rhs[i] != 0x00) return -1; // RHS is longer => LHS appears **before** RHS, lexicographically
+
+    return 0; // Strings are equal!
+}

@@ -376,6 +376,16 @@ rval_buf_view_t rval_get_buf(rval_t* rval, const char* key);
  */
 bool rval_res(rval_t* rval, const char* key);
 
+/**
+ * Compare some key_view to a cstring
+ * 
+ * @param lhs   The key_view to compare
+ * @param rhs   The raw cstring to compare against
+ * @returns The value returned by a raw `strcmp`, if run on a NULL-terminated `lhs`, `rhs`
+ * 
+ */
+int8_t rval_strcmp(rval_key_view_t lhs, const char* rhs);
+
 #ifdef __cplusplus
 }
 #endif
